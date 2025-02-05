@@ -32,11 +32,9 @@ const Board: React.FC = () => {
 
   useEffect(() => {
     if (!isXNext && !gameOver) {
-      const timer = setTimeout(() => {
-        const bestMove = getBestMove([...board], difficulty);
-        handleClick(bestMove);
-      }, 500);
-      return () => clearTimeout(timer);
+      const bestMove = getBestMove([...board], difficulty);
+      handleClick(bestMove);
+      
     }
   }, [isXNext, board, difficulty, gameOver]);
 
