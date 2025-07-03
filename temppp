@@ -1,0 +1,67 @@
+exports.getalldownloaddata = async (req, res, next) => {
+  try {
+    const type = req.query.type;
+    const format = req.query.format;
+    const filters = [
+      "invoice_num",
+      "month",
+      "customer_gst",
+      "year",
+      "company_gst",
+      "customer",
+      "pages",
+      "document_type",
+      "company",
+    ];
+
+    let whereClause = {};
+    for (let key of filters) {
+      if (req.query[key]) {
+        const values = req.query[key].split(",").map((v) => v.trim());
+        whereClause[key] = In(values);
+      }
+    }
+
+    let data;
+
+    if (!req.query.batch_num) {
+      data = await InfoRepo.findAll({ where: whereClause, raw: true });
+    } else {
+      const batch_num = req.query.batch_num.split(",").map((v) => v.trim());
+      whereClause.batch_num = In(batch_num);
+      data = await InfoRepo.findAll({ where: whereClause, raw: true });
+    }
+
+    if (!["summary", "detailed"].includes(type)) {
+      return res.status(400).json({
+        message: `Invalid type: ${type}. Use 'summary' or 'detailed'.`,
+      });
+    }
+
+    if (format === "excel") {
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, type.toUpperCase());
+
+      const buffer = XLSX.write(workbook, {
+        bookType: "xlsx",
+        type: "buffer",
+      });
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=${type}_report.xlsx`
+      );
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      return res.send(buffer);
+    }
+
+    return res.status(400).json({ message: "Only Excel supported for now." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to export data", error: err });
+  }
+};
