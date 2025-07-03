@@ -1,35 +1,115 @@
-exports.getalldownloaddata = async (req, res) => {
+// controllers/downloadController.js
+
+const { In } = require("typeorm");
+const { InfoRepo } = require("../entity/InfoRepo");
+const { getDownloadRecords } = require("../services/getDownloadRecords");
+const { toPdf, toExcel } = require("../services/exportService");
+const { Download } = require("../constants/enums");
+
+exports.getalldownloaddata = async (req, res, next) => {
   try {
-    const whereClause = {};
+    const { type, format } = req.query;
 
-    if (req.query.month) {
-      whereClause.month = In(req.query.month.split(","));
+    const whereClause = buildWhereClause(req.query);
+
+    const data = await fetchData(whereClause, req.query.batch_num);
+
+    let processedData = [];
+    if (type === "summary") {
+      processedData = processSummary(data);
+    } else if (type === "detailed") {
+      processedData = processDetailed(data);
+    } else {
+      return res.status(400).send({ message: `Invalid type: ${type}` });
     }
-    if (req.query.customer_gst) {
-      whereClause.customer_gst = In(req.query.customer_gst.split(","));
+
+    if (format === Download.PDF) {
+      return await toPdf(processedData, type, res);
+    } else if (format === Download.EXCEL) {
+      return toExcel(processedData, type, res);
+    } else {
+      return res.status(400).send({ message: `Invalid format: ${format}` });
     }
-    // Add other filters as needed...
-
-    const data = await InfoRepo.find({ where: whereClause });
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Info");
-
-    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
-
-    res.setHeader(
-      "Content-Disposition",
-      "attachment; filename=info.xlsx"
-    );
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-
-    return res.send(buffer);
   } catch (err) {
-    console.error("Excel export failed:", err);
-    return res.status(500).send("Internal server error");
+    if (!err.statusCode) err.statusCode = 500;
+    next(err);
   }
 };
+
+function buildWhereClause(query) {
+  const fields = [
+    "invoice_num", "month", "customer_gst", "year",
+    "company_gst", "customer", "pages", "document_type", "company"
+  ];
+
+  const clause = {};
+  fields.forEach((field) => {
+    if (query[field]) {
+      const values = query[field].split(",").map((val) => val.trim());
+      clause[field] = In(values);
+    }
+  });
+  return clause;
+}
+
+async function fetchData(whereClause, batch_num) {
+  if (!batch_num) {
+    return await InfoRepo.find({ where: whereClause });
+  } else {
+    const batchNums = batch_num.split(",").map((b) => b.trim());
+    return await getDownloadRecords(batchNums, whereClause);
+  }
+}
+
+function processSummary(data) {
+  const sumCSV = (str = "") =>
+    str
+      .replace(/,/g, "")
+      .split(/\s*,\s*/)
+      .reduce((sum, val) => sum + parseFloat(val || "0"), 0);
+
+  return data.map((entry) => ({
+    ...entry,
+    quantity: sumCSV(entry.quantity),
+    net_product_value: sumCSV(entry.net_product_value),
+    total_tax: sumCSV(entry.total_tax),
+    total_invoice_value: sumCSV(entry.total_invoice_value),
+  }));
+}
+
+function processDetailed(data) {
+  const splitCSV = (val) => (val ? val.split(",") : []);
+
+  const expanded = [];
+  for (const entry of data) {
+    const quantities = splitCSV(entry.quantity);
+    const netValues = splitCSV(entry.net_product_value);
+    const taxes = splitCSV(entry.total_tax);
+    const invoices = splitCSV(entry.total_invoice_value);
+    const batchNums = splitCSV(entry.batch_num);
+    const productNames = splitCSV(entry.product_name);
+
+    const maxLen = Math.max(
+      quantities.length,
+      netValues.length,
+      taxes.length,
+      invoices.length,
+      batchNums.length,
+      productNames.length
+    );
+
+    for (let i = 0; i < maxLen; i++) {
+      expanded.push({
+        ...entry,
+        quantity: quantities[i] || "",
+        net_product_value: netValues[i] || "",
+        total_tax: taxes[i] || "",
+        total_invoice_value: invoices[i] || "",
+        batch_num: batchNums[i] || "",
+        product_name: productNames[i] || "",
+      });
+    }
+  }
+
+  return expanded;
+}
