@@ -1,67 +1,35 @@
-exports.getalldownloaddata = async (req, res, next) => {
+exports.getalldownloaddata = async (req, res) => {
   try {
-    const type = req.query.type;
-    const format = req.query.format;
-    const filters = [
-      "invoice_num",
-      "month",
-      "customer_gst",
-      "year",
-      "company_gst",
-      "customer",
-      "pages",
-      "document_type",
-      "company",
-    ];
+    const whereClause = {};
 
-    let whereClause = {};
-    for (let key of filters) {
-      if (req.query[key]) {
-        const values = req.query[key].split(",").map((v) => v.trim());
-        whereClause[key] = In(values);
-      }
+    if (req.query.month) {
+      whereClause.month = In(req.query.month.split(","));
     }
-
-    let data;
-
-    if (!req.query.batch_num) {
-      data = await InfoRepo.findAll({ where: whereClause, raw: true });
-    } else {
-      const batch_num = req.query.batch_num.split(",").map((v) => v.trim());
-      whereClause.batch_num = In(batch_num);
-      data = await InfoRepo.findAll({ where: whereClause, raw: true });
+    if (req.query.customer_gst) {
+      whereClause.customer_gst = In(req.query.customer_gst.split(","));
     }
+    // Add other filters as needed...
 
-    if (!["summary", "detailed"].includes(type)) {
-      return res.status(400).json({
-        message: `Invalid type: ${type}. Use 'summary' or 'detailed'.`,
-      });
-    }
+    const data = await InfoRepo.find({ where: whereClause });
 
-    if (format === "excel") {
-      const worksheet = XLSX.utils.json_to_sheet(data);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, type.toUpperCase());
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Info");
 
-      const buffer = XLSX.write(workbook, {
-        bookType: "xlsx",
-        type: "buffer",
-      });
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
 
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=${type}_report.xlsx`
-      );
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      );
-      return res.send(buffer);
-    }
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=info.xlsx"
+    );
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
 
-    return res.status(400).json({ message: "Only Excel supported for now." });
+    return res.send(buffer);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to export data", error: err });
+    console.error("Excel export failed:", err);
+    return res.status(500).send("Internal server error");
   }
 };
