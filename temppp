@@ -88,3 +88,27 @@ AppDataSource.initialize()
     app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
   })
   .catch((err) => console.error('❌ DB init failed:', err));
+
+
+
+
+
+
+
+
+const cleanedBatch = batch.map(row => {
+  const clean = {};
+  for (const key in row) {
+    let value = row[key];
+    if (value === undefined || value === null) {
+      value = '';  // or null if column allows
+    } else if (typeof value === 'object') {
+      value = JSON.stringify(value); // or '' if you don't want JSON strings
+    } else if (typeof value === 'number' && isNaN(value)) {
+      value = 0;
+    }
+    clean[key] = value;
+  }
+  return clean;
+});
+
