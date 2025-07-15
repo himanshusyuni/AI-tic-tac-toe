@@ -29,3 +29,9 @@ BEGIN
 
     RETURN @result
 END;
+
+SELECT 
+    column_name,
+    dbo.RemoveFirstCommaLogic(column_name) AS cleaned_column
+FROM 
+    your_table;
