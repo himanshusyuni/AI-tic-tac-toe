@@ -112,3 +112,45 @@ const cleanedBatch = batch.map(row => {
   return clean;
 });
 
+
+
+
+
+
+
+import sql from 'mssql';
+
+async function bulkInsertInfo(records: any[]) {
+  const config = {
+    user: 'yourUser',
+    password: 'yourPassword',
+    server: 'yourServer', // e.g. 'localhost'
+    database: 'yourDatabase',
+    options: {
+      encrypt: true, // for Azure
+      trustServerCertificate: true
+    }
+  };
+
+  const pool = await sql.connect(config);
+
+  const table = new sql.Table('info');
+  table.create = false; // table already exists
+
+  // Define columns matching your DB schema
+  table.columns.add('id', sql.Int, { nullable: false });
+  table.columns.add('name', sql.VarChar(100), { nullable: true });
+  table.columns.add('email', sql.VarChar(100), { nullable: true });
+  table.columns.add('age', sql.Int, { nullable: true });
+  table.columns.add('city', sql.VarChar(100), { nullable: true });
+
+  // Add data rows
+  records.forEach(item => {
+    table.rows.add(item.id, item.name, item.email, item.age, item.city);
+  });
+
+  await pool.request().bulk(table);
+  console.log(`Bulk insert completed: ${records.length} records inserted.`);
+
+  await pool.close();
+}
