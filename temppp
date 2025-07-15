@@ -1,71 +1,31 @@
- table.columns.add('invoice_num', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('invoice_date', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('original_invoice_num', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('original_invoice_date', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('date', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('company_gst', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('company', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('batch_num', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('source', sql.NVarChar(sql.MAX), {nullable: true});
-    table.columns.add('destination', sql.NVarChar(sql.MAX), {nullable: true});
-    table.columns.add('month', sql.NVarChar(sql.MAX), {nullable: true});
-    table.columns.add('year', sql.Int, {nullable: true});
-    table.columns.add('product_name', sql.NVarChar(sql.MAX), {nullable: true});
-    table.columns.add('quantity', sql.VarChar(sql.MAX), {nullable: true});
-    table.columns.add('net_product_value', sql.VarChar(sql.MAX), {nullable: true});
-    table.columns.add('total_tax', sql.VarChar(sql.MAX), {nullable: true});
-    table.columns.add('total_invoice_value', sql.VarChar(sql.MAX), {nullable: true});
-    table.columns.add('customer_gst', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('customer', sql.NVarChar(sql.MAX), {nullable: false});
-    table.columns.add('file_type', sql.NVarChar(sql.MAX), {nullable: true});
-    table.columns.add('pages', sql.Int, {nullable: false});
-    table.columns.add('document_type', sql.NVarChar(sql.MAX), {nullable: false});
+CREATE FUNCTION dbo.RemoveFirstCommaLogic (@input NVARCHAR(MAX))
+RETURNS NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @result NVARCHAR(MAX) = ''
+    DECLARE @points INT = 0
+    DECLARE @i INT = 1
+    DECLARE @len INT = LEN(@input)
+    DECLARE @ch NCHAR(1)
 
+    WHILE @i <= @len
+    BEGIN
+        SET @ch = SUBSTRING(@input, @i, 1)
 
-    for (const row of jsonData) {
-      table.rows.add(
-        row.invoice_num || '',
-        row.invoice_date || '',
-        row.original_invoice_num || '',
-        row.original_invoice_date || '',
-        row.date || '',
-        row.company_gst || '',
-        row.company || '',
-        row.batch_num || '',
-        row.source || '',
-        row.destination || '',
-        row.month || '',
-        row.year || null,
-        row.product_name || '',
-        row.quantity || '',
-        row.net_product_value || '',
-        row.total_tax || '',
-        row.total_invoice_value || '',
-        row.customer_gst || '',
-        row.customer || '',
-        row.file_type || '',
-        parseInt(row.pages) || 0,
-        row.document_type || ''
-      );
-    }
+        IF @ch = ',' AND @points = 0
+        BEGIN
+            -- skip this first comma before a point
+        END
+        ELSE 
+        BEGIN
+            SET @result += @ch
 
+            IF @ch = ',' SET @points -= 1
+            ELSE IF @ch = '.' SET @points += 1
+        END
 
+        SET @i += 1
+    END
 
-    const transaction = new sql.Transaction(pool);
-    await transaction.begin();
-    try {
-      const request = new sql.Request(transaction);
-      await request.bulk(table);
-      await transaction.commit();
-      console.log('Bulk insert successful');
-      res.json({message: 'Bulk insert successful'});
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Bulk insert failed:', error);
-      res.status(500).json({error: 'Bulk insert failed'});
-    }
-  } catch (error) {
-    console.error('Error processing file:', error);
-    res.status(500).json({error: 'Failed to process Excel file'});
-  }
-});
+    RETURN @result
+END;
