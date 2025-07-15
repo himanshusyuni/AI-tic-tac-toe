@@ -35,3 +35,65 @@ SELECT
     dbo.RemoveFirstCommaLogic(column_name) AS cleaned_column
 FROM 
     your_table;
+
+
+
+
+CREATE FUNCTION dbo.GetNewTotalTax
+(
+    @quantity NVARCHAR(MAX),
+    @total_tax NVARCHAR(MAX)
+)
+RETURNS NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @cnt1 INT
+    DECLARE @cnt2 INT
+    DECLARE @newTotalTax NVARCHAR(MAX) = ''
+
+    SET @cnt1 = LEN(@quantity) - LEN(REPLACE(@quantity, ',', '')) + 1
+    SET @cnt2 = LEN(@total_tax) - LEN(REPLACE(@total_tax, ',', '')) + 1
+
+    IF @cnt1 * 2 = @cnt2
+    BEGIN
+        DECLARE @xml XML
+        SET @xml = CAST('<root><r>' + REPLACE(@total_tax, ',', '</r><r>') + '</r></root>' AS XML)
+
+        ;WITH Split AS (
+            SELECT ROW_NUMBER() OVER (ORDER BY (SELECT 1)) AS rn, t.value('.', 'NVARCHAR(MAX)') AS val
+            FROM @xml.nodes('/root/r') AS x(t)
+        )
+        SELECT @newTotalTax = 
+            CASE 
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM Split s1
+                    JOIN Split s2 ON s1.rn = s2.rn - 1
+                    WHERE s1.rn % 2 = 1 AND s1.val <> s2.val
+                )
+                THEN @total_tax
+                ELSE 
+                    STUFF((
+                        SELECT ',' + CAST(CAST(s1.val AS FLOAT) + CAST(s2.val AS FLOAT) AS NVARCHAR)
+                        FROM Split s1
+                        JOIN Split s2 ON s1.rn = s2.rn - 1
+                        WHERE s1.rn % 2 = 1
+                        FOR XML PATH(''), TYPE
+                    ).value('.', 'NVARCHAR(MAX)'), 1, 1, '')
+            END
+    END
+    ELSE
+    BEGIN
+        SET @newTotalTax = @total_tax
+    END
+
+    RETURN @newTotalTax
+END
+
+
+SELECT 
+    quantity, 
+    total_tax, 
+    dbo.GetNewTotalTax(quantity, total_tax) AS newTotalTax
+FROM info1;
+
