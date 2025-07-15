@@ -1,156 +1,71 @@
-// data-source.js
-const { DataSource } = require("typeorm");
-const { InfoRepo } = require("./entity/InfoRepo"); // adjust path
+ table.columns.add('invoice_num', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('invoice_date', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('original_invoice_num', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('original_invoice_date', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('date', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('company_gst', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('company', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('batch_num', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('source', sql.NVarChar(sql.MAX), {nullable: true});
+    table.columns.add('destination', sql.NVarChar(sql.MAX), {nullable: true});
+    table.columns.add('month', sql.NVarChar(sql.MAX), {nullable: true});
+    table.columns.add('year', sql.Int, {nullable: true});
+    table.columns.add('product_name', sql.NVarChar(sql.MAX), {nullable: true});
+    table.columns.add('quantity', sql.VarChar(sql.MAX), {nullable: true});
+    table.columns.add('net_product_value', sql.VarChar(sql.MAX), {nullable: true});
+    table.columns.add('total_tax', sql.VarChar(sql.MAX), {nullable: true});
+    table.columns.add('total_invoice_value', sql.VarChar(sql.MAX), {nullable: true});
+    table.columns.add('customer_gst', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('customer', sql.NVarChar(sql.MAX), {nullable: false});
+    table.columns.add('file_type', sql.NVarChar(sql.MAX), {nullable: true});
+    table.columns.add('pages', sql.Int, {nullable: false});
+    table.columns.add('document_type', sql.NVarChar(sql.MAX), {nullable: false});
 
-const AppDataSource = new DataSource({
-  type: "mssql",
-  host: "localhost",
-  port: 1433,
-  username: "your_user",
-  password: "your_password",
-  database: "your_db",
-  synchronize: false,
-  logging: true,
-  entities: [InfoRepo],
-  options: { encrypt: false },
-});
 
-module.exports = { AppDataSource };
+    for (const row of jsonData) {
+      table.rows.add(
+        row.invoice_num || '',
+        row.invoice_date || '',
+        row.original_invoice_num || '',
+        row.original_invoice_date || '',
+        row.date || '',
+        row.company_gst || '',
+        row.company || '',
+        row.batch_num || '',
+        row.source || '',
+        row.destination || '',
+        row.month || '',
+        row.year || null,
+        row.product_name || '',
+        row.quantity || '',
+        row.net_product_value || '',
+        row.total_tax || '',
+        row.total_invoice_value || '',
+        row.customer_gst || '',
+        row.customer || '',
+        row.file_type || '',
+        parseInt(row.pages) || 0,
+        row.document_type || ''
+      );
+    }
 
 
 
-
-
-
-// routes/upload.js
-const express = require('express');
-const multer = require('multer');
-const XLSX = require('xlsx');
-const { AppDataSource } = require('../data-source');
-const { InfoRepo } = require('../entity/InfoRepo');
-
-const router = express.Router();
-
-// Multer in-memory storage
-const upload = multer({ storage: multer.memoryStorage() });
-
-router.post('/uploadExcel', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(sheet);
-    console.log(`Parsed ${data.length} rows`);
-
-    const BATCH_SIZE = 5000;
-
-    await AppDataSource.transaction(async (manager) => {
-      for (let i = 0; i < data.length; i += BATCH_SIZE) {
-        const batch = data.slice(i, i + BATCH_SIZE);
-        await manager.insert(InfoRepo, batch);
-        console.log(`Inserted batch ${i} - ${i + batch.length}`);
-      }
-    });
-
-    res.json({ message: 'All records inserted atomically!' });
-  } catch (err) {
-    console.error('Insert failed:', err);
-    res.status(500).json({ error: 'Insert failed' });
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    try {
+      const request = new sql.Request(transaction);
+      await request.bulk(table);
+      await transaction.commit();
+      console.log('Bulk insert successful');
+      res.json({message: 'Bulk insert successful'});
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Bulk insert failed:', error);
+      res.status(500).json({error: 'Bulk insert failed'});
+    }
+  } catch (error) {
+    console.error('Error processing file:', error);
+    res.status(500).json({error: 'Failed to process Excel file'});
   }
 });
-
-module.exports = router;
-
-
-
-
-
-
-const express = require('express');
-const { AppDataSource } = require('./data-source');
-const uploadRoutes = require('./routes/upload'); // adjust path if needed
-
-const app = express();
-app.use(express.json());
-
-AppDataSource.initialize()
-  .then(() => {
-    console.log('✅ Database connected');
-
-    // Register your routes
-    app.use('/api', uploadRoutes); 
-    // now POST /api/uploadExcel works
-
-    // start server
-    const port = process.env.PORT || 3000;
-    app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
-  })
-  .catch((err) => console.error('❌ DB init failed:', err));
-
-
-
-
-
-
-
-
-const cleanedBatch = batch.map(row => {
-  const clean = {};
-  for (const key in row) {
-    let value = row[key];
-    if (value === undefined || value === null) {
-      value = '';  // or null if column allows
-    } else if (typeof value === 'object') {
-      value = JSON.stringify(value); // or '' if you don't want JSON strings
-    } else if (typeof value === 'number' && isNaN(value)) {
-      value = 0;
-    }
-    clean[key] = value;
-  }
-  return clean;
-});
-
-
-
-
-
-
-
-import sql from 'mssql';
-
-async function bulkInsertInfo(records: any[]) {
-  const config = {
-    user: 'yourUser',
-    password: 'yourPassword',
-    server: 'yourServer', // e.g. 'localhost'
-    database: 'yourDatabase',
-    options: {
-      encrypt: true, // for Azure
-      trustServerCertificate: true
-    }
-  };
-
-  const pool = await sql.connect(config);
-
-  const table = new sql.Table('info');
-  table.create = false; // table already exists
-
-  // Define columns matching your DB schema
-  table.columns.add('id', sql.Int, { nullable: false });
-  table.columns.add('name', sql.VarChar(100), { nullable: true });
-  table.columns.add('email', sql.VarChar(100), { nullable: true });
-  table.columns.add('age', sql.Int, { nullable: true });
-  table.columns.add('city', sql.VarChar(100), { nullable: true });
-
-  // Add data rows
-  records.forEach(item => {
-    table.rows.add(item.id, item.name, item.email, item.age, item.city);
-  });
-
-  await pool.request().bulk(table);
-  console.log(`Bulk insert completed: ${records.length} records inserted.`);
-
-  await pool.close();
-}
