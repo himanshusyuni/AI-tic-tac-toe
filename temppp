@@ -152,3 +152,60 @@ END
 SELECT * 
 FROM info 
 WHERE dbo.CheckInvoiceValid(quantity, net_product_value, total_tax, total_invoice_value) = 1;
+
+
+
+
+CREATE FUNCTION dbo.CheckInvoiceValid
+(
+    @quantity NVARCHAR(MAX),
+    @net_product_value NVARCHAR(MAX),
+    @total_tax NVARCHAR(MAX),
+    @total_invoice_value NVARCHAR(MAX)
+)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @result BIT = 1;
+
+    ;WITH
+    quantity_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS quantity
+        FROM STRING_SPLIT(@quantity, ',')
+    ),
+    npv_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS npv
+        FROM STRING_SPLIT(@net_product_value, ',')
+    ),
+    tt_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS tt
+        FROM STRING_SPLIT(@total_tax, ',')
+    ),
+    tiv_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS tiv
+        FROM STRING_SPLIT(@total_invoice_value, ',')
+    ),
+    joined AS (
+        SELECT 
+            q.quantity, n.npv, t.tt, i.tiv
+        FROM quantity_cte q
+        FULL OUTER JOIN npv_cte n ON q.rn = n.rn
+        FULL OUTER JOIN tt_cte t ON q.rn = t.rn
+        FULL OUTER JOIN tiv_cte i ON q.rn = i.rn
+    )
+    -- Set @result to 0 if any row mismatches
+    SELECT @result = CASE 
+        WHEN EXISTS (
+            SELECT 1
+            FROM joined
+            WHERE 
+                quantity IS NULL OR npv IS NULL OR tt IS NULL OR tiv IS NULL
+                OR ABS(npv + tt - tiv) > 0.0001
+        )
+        THEN 0
+        ELSE 1
+    END
+
+    RETURN @result;
+END
+
