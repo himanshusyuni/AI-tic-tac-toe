@@ -210,3 +210,86 @@ BEGIN
 END
 
 https://teams.microsoft.com/l/meetup-join/19%3ameeting_NTMzZGI4MjAtZmFiYi00OTA3LWEwNzAtYjhjMjhjYzYyOGVj%40thread.v2/0?context=%7b%22Tid%22%3a%2237d6c2dc-4813-48e3-a842-28cab8171c98%22%2c%22Oid%22%3a%22aab2be42-5c5c-4cb1-ac4e-f1d52be96395%22%7d
+
+
+
+CREATE FUNCTION dbo.NewTotalTax
+(
+    @quantity NVARCHAR(MAX),
+    @net_product_value NVARCHAR(MAX),
+    @total_tax NVARCHAR(MAX),
+    @total_invoice_value NVARCHAR(MAX)
+)
+RETURNS NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @result NVARCHAR(MAX) = '';
+    DECLARE @sz INT;
+
+    -- Split CSVs and add row numbers
+    ;WITH
+    quantity_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS quantity
+        FROM STRING_SPLIT(@quantity, ',')
+    ),
+    npv_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS npv
+        FROM STRING_SPLIT(@net_product_value, ',')
+    ),
+    tiv_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS tiv
+        FROM STRING_SPLIT(@total_invoice_value, ',')
+    ),
+    tt_cte AS (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, TRY_CAST(value AS FLOAT) AS tt
+        FROM STRING_SPLIT(@total_tax, ',')
+    )
+    SELECT @sz = COUNT(*) FROM quantity_cte;
+
+    -- Check sizes: npv & tiv must have sz rows; tt must have 2*sz rows
+    IF (
+        (SELECT COUNT(*) FROM npv_cte) != @sz
+        OR (SELECT COUNT(*) FROM tiv_cte) != @sz
+        OR (SELECT COUNT(*) FROM tt_cte) != 2*@sz
+    )
+    BEGIN
+        RETURN @total_tax;
+    END
+
+    DECLARE @i INT = 1;  -- index over tt_cte (1-based)
+    DECLARE @j INT = 1;  -- index over npv & tiv (1-based)
+
+    DECLARE @tt1 FLOAT;
+    DECLARE @tt2 FLOAT;
+    DECLARE @npv FLOAT;
+    DECLARE @tiv FLOAT;
+    DECLARE @temp FLOAT;
+
+    WHILE @i <= 2*@sz
+    BEGIN
+        SELECT @tt1 = tt FROM tt_cte WHERE rn = @i;
+        SELECT @tt2 = tt FROM tt_cte WHERE rn = @i+1;
+        SELECT @npv = npv FROM npv_cte WHERE rn = @j;
+        SELECT @tiv = tiv FROM tiv_cte WHERE rn = @j;
+
+        -- validate: tt[i]==tt[i+1] and abs(tt[i]+tt[i+1]+npv - tiv) <=0.01
+        IF @tt1 IS NULL OR @tt2 IS NULL OR @npv IS NULL OR @tiv IS NULL 
+            OR ABS(@tt1 - @tt2) > 0.0001
+            OR ABS(@tt1 + @tt2 + @npv - @tiv) > 0.01
+        BEGIN
+            RETURN @total_tax;
+        END
+
+        SET @temp = ROUND(@tt1 + @tt2, 2);  -- round sum to 2 decimal places
+
+        -- Build CSV string
+        SET @result = @result + 
+            CASE WHEN LEN(@result) > 0 THEN ',' ELSE '' END 
+            + FORMAT(@temp, '0.00');
+
+        SET @i = @i + 2;
+        SET @j = @j + 1;
+    END
+
+    RETURN @result;
+END
