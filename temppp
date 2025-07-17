@@ -293,3 +293,114 @@ BEGIN
 
     RETURN @result;
 END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE FUNCTION dbo.NewTotalTax
+(
+    @quantity NVARCHAR(MAX),
+    @net_product_value NVARCHAR(MAX),
+    @total_tax NVARCHAR(MAX),
+    @total_invoice_value NVARCHAR(MAX)
+)
+RETURNS NVARCHAR(MAX)
+AS
+BEGIN
+    DECLARE @result NVARCHAR(MAX) = '';
+    DECLARE @sz INT;
+
+    -- Declare table variables
+    DECLARE @quantity_tbl TABLE (rn INT PRIMARY KEY, quantity FLOAT);
+    DECLARE @npv_tbl TABLE (rn INT PRIMARY KEY, npv FLOAT);
+    DECLARE @tiv_tbl TABLE (rn INT PRIMARY KEY, tiv FLOAT);
+    DECLARE @tt_tbl TABLE (rn INT PRIMARY KEY, tt FLOAT);
+
+    -- Insert data with row numbers
+    INSERT INTO @quantity_tbl(rn, quantity)
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), TRY_CAST(value AS FLOAT)
+    FROM STRING_SPLIT(@quantity, ',');
+
+    INSERT INTO @npv_tbl(rn, npv)
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), TRY_CAST(value AS FLOAT)
+    FROM STRING_SPLIT(@net_product_value, ',');
+
+    INSERT INTO @tiv_tbl(rn, tiv)
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), TRY_CAST(value AS FLOAT)
+    FROM STRING_SPLIT(@total_invoice_value, ',');
+
+    INSERT INTO @tt_tbl(rn, tt)
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), TRY_CAST(value AS FLOAT)
+    FROM STRING_SPLIT(@total_tax, ',');
+
+    SELECT @sz = COUNT(*) FROM @quantity_tbl;
+
+    -- Check sizes
+    IF (
+        (SELECT COUNT(*) FROM @npv_tbl) != @sz
+        OR (SELECT COUNT(*) FROM @tiv_tbl) != @sz
+        OR (SELECT COUNT(*) FROM @tt_tbl) != 2*@sz
+    )
+    BEGIN
+        RETURN @total_tax;
+    END
+
+    DECLARE @i INT = 1;
+    DECLARE @j INT = 1;
+
+    DECLARE @tt1 FLOAT;
+    DECLARE @tt2 FLOAT;
+    DECLARE @npv FLOAT;
+    DECLARE @tiv FLOAT;
+    DECLARE @temp FLOAT;
+
+    WHILE @i <= 2*@sz
+    BEGIN
+        SELECT @tt1 = tt FROM @tt_tbl WHERE rn = @i;
+        SELECT @tt2 = tt FROM @tt_tbl WHERE rn = @i+1;
+        SELECT @npv = npv FROM @npv_tbl WHERE rn = @j;
+        SELECT @tiv = tiv FROM @tiv_tbl WHERE rn = @j;
+
+        -- validate
+        IF @tt1 IS NULL OR @tt2 IS NULL OR @npv IS NULL OR @tiv IS NULL
+            OR ABS(@tt1 - @tt2) > 0.0001
+            OR ABS(@tt1 + @tt2 + @npv - @tiv) > 0.01
+        BEGIN
+            RETURN @total_tax;
+        END
+
+        SET @temp = ROUND(@tt1 + @tt2, 2);
+
+        SET @result = @result + 
+            CASE WHEN LEN(@result) > 0 THEN ',' ELSE '' END 
+            + FORMAT(@temp, '0.00');
+
+        SET @i = @i + 2;
+        SET @j = @j + 1;
+    END
+
+    RETURN @result;
+END
