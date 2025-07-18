@@ -1,3 +1,84 @@
+CREATE OR ALTER FUNCTION dbo.NewTotalTaxInline (
+    @id INT,
+    @quantity NVARCHAR(MAX),
+    @net_product_value NVARCHAR(MAX),
+    @total_tax NVARCHAR(MAX),
+    @total_invoice_value NVARCHAR(MAX)
+)
+RETURNS TABLE
+AS
+RETURN
+WITH
+q AS (
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) rn, TRY_CAST(value AS FLOAT) val
+    FROM STRING_SPLIT(@quantity, ',')
+),
+npv AS (
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) rn, TRY_CAST(value AS FLOAT) val
+    FROM STRING_SPLIT(@net_product_value, ',')
+),
+tiv AS (
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) rn, TRY_CAST(value AS FLOAT) val
+    FROM STRING_SPLIT(@total_invoice_value, ',')
+),
+tt AS (
+    SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) rn, TRY_CAST(value AS FLOAT) val
+    FROM STRING_SPLIT(@total_tax, ',')
+),
+pair AS (
+    SELECT
+        q.rn,
+        npv.val AS npv,
+        tiv.val AS tiv,
+        t1.val AS tt1,
+        t2.val AS tt2
+    FROM q
+    JOIN npv ON q.rn = npv.rn
+    JOIN tiv ON q.rn = tiv.rn
+    JOIN tt t1 ON t1.rn = q.rn * 2 - 1
+    JOIN tt t2 ON t2.rn = q.rn * 2
+),
+validated AS (
+    SELECT *,
+        CASE 
+            WHEN tt1 IS NULL OR tt2 IS NULL OR npv IS NULL OR tiv IS NULL
+                 OR ABS(tt1 - tt2) > 0.0001
+                 OR ABS(tt1 + tt2 + npv - tiv) > 0.01
+            THEN 0 ELSE 1
+        END AS is_valid
+    FROM pair
+)
+SELECT 
+    @id AS id,
+    CASE 
+        WHEN MIN(is_valid) = 0 THEN @total_tax
+        ELSE 
+            STUFF((
+                SELECT ',' + FORMAT(ROUND(tt1+tt2,2),'0.00')
+                FROM validated v2
+                WHERE v2.is_valid = 1
+                ORDER BY v2.rn
+                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '')
+    END AS new_total_tax
+FROM validated v1;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 CREATE FUNCTION dbo.RemoveFirstCommaLogic (@input NVARCHAR(MAX))
 RETURNS NVARCHAR(MAX)
 AS
