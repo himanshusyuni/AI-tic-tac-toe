@@ -1,3 +1,19 @@
+UPDATE i
+SET total_tax = v.new_total_tax
+FROM info4 i
+CROSS APPLY dbo.NewTotalTaxInline(
+    i.id, 
+    i.quantity, 
+    i.net_product_value, 
+    i.total_tax, 
+    i.total_invoice_value
+) v;
+
+
+
+
+
+
 CREATE OR ALTER FUNCTION dbo.NewTotalTaxInline (
     @id INT,
     @quantity NVARCHAR(MAX),
